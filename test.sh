@@ -9,8 +9,8 @@ if [ ! -d "tests/test-chart" ]; then
     cd ..
 fi
 
-helm plugin uninstall kustomize || true
-helm plugin install .
+# helm plugin uninstall kustomize || true
+# helm plugin install .
 
 helm template tests/test-chart --post-renderer kustomize --post-renderer-args tests/kustomize --debug -s templates/deployment.yaml 
 

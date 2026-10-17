@@ -27,3 +27,20 @@ resources:
 patches:
   ...
 ```
+
+## Development
+
+
+### Preparing signing keys
+
+```shell
+gpg --quick-generate-key "helm-kustomize-plugin" rsa4096 sign 1y
+gpg --batch --export-secret-keys helm-kustomize-plugin |
+  base64 |
+  tr -d '\n' 
+# put this as GPG_KEYRING_BASE64 secret in repo
+
+# export public key
+gpg --armor --export helm-kustomize-plugin 
+
+```

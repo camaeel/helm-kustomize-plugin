@@ -42,19 +42,35 @@ jobs:
         env:
           PLUGIN_NAME: ${{ steps.plugin.outputs.result }}
           RELEASE_TAG: ${{ github.ref_name }}
+          GPG_KEYRING_BASE64: ${{ secrets.GPG_KEYRING_BASE64 }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SIGNING_KEY_EMAIL: helm-kustomize-plugin
         run: |
           NAME=$(printf '%s' "$PLUGIN_NAME" | tr -d '\r\n')
           VERSION=${RELEASE_TAG#v}
           ARCHIVE="$NAME-$VERSION.tgz"
+          SECRING="$RUNNER_TEMP/secring.gpg"
+          PASSPHRASE_FILE="$RUNNER_TEMP/passphrase.txt"
 
           if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
             echo "Could not determine plugin name and version" >&2
             exit 1
           fi
+          if [ -z "$GPG_KEYRING_BASE64" ] || [ -z "$SIGNING_KEY_EMAIL" ]; then
+            echo "GPG_KEYRING_BASE64 secret and SIGNING_KEY_EMAIL variable are required" >&2
+            exit 1
+          fi
 
+          umask 077
+          trap 'rm -f "$SECRING" "$PASSPHRASE_FILE"' EXIT
+          printf '%s' "$GPG_KEYRING_BASE64" | base64 --decode > "$SECRING"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSPHRASE_FILE"
           mkdir -p dist
-          helm plugin package --sign=false .
-          mv "$ARCHIVE" dist/
+          helm plugin package --sign --key "$SIGNING_KEY_EMAIL" \
+            --keyring "$SECRING" --passphrase-file "$PASSPHRASE_FILE" .
+          test -s "$ARCHIVE"
+          test -s "$ARCHIVE.prov"
+          mv "$ARCHIVE" "$ARCHIVE.prov" dist/
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
@@ -75,10 +91,11 @@ jobs:
         run: |
           oras push "ghcr.io/${GITHUB_REPOSITORY}/${NAME}:${VERSION}" \
             --artifact-type application/vnd.helm.plugin.v1+json \
-            "${ARCHIVE}:application/vnd.oci.image.layer.v1.tar+gzip"
+            "${ARCHIVE}:application/vnd.oci.image.layer.v1.tar+gzip" \
+            "${ARCHIVE}.prov:application/vnd.oci.image.layer.v1.tar"
 
-      # - name: Attach package to Release Please release
+      # - name: Attach package and provenance to GitHub release
       #   env:
       #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       #     ARCHIVE: ${{ steps.package.outputs.archive }}
-      #   run: gh release upload "$GITHUB_REF_NAME" "dist/$ARCHIVE"
+      #   run: gh release upload "$GITHUB_REF_NAME" "dist/$ARCHIVE" "dist/$ARCHIVE.prov"

@@ -29,13 +29,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         with:
-          cmd: -i '.version = (strenv(RELEASE_TAG) | sub("^v"; ""))' plugin.yaml
+          cmd: yq -i '.version = (strenv(RELEASE_TAG) | sub("^v"; ""))' plugin.yaml
 
       - name: Read plugin name
         id: plugin
         uses: mikefarah/yq@v4
         with:
-          cmd: -r '.name' plugin.yaml
+          cmd: yq -r '.name' plugin.yaml
 
       - name: Package plugin
         id: package

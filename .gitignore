@@ -2,3 +2,4 @@
 tests/
 
 !tests/kustomize/kustomization.yaml
+dist/

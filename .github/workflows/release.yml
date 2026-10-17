@@ -71,10 +71,11 @@ jobs:
           NAME: ${{ steps.package.outputs.name }}
           VERSION: ${{ steps.package.outputs.version }}
           ARCHIVE: ${{ steps.package.outputs.archive }}
+        working-directory: dist
         run: |
           oras push "ghcr.io/${GITHUB_REPOSITORY}/${NAME}:${VERSION}" \
             --artifact-type application/vnd.helm.plugin.v1+json \
-            "dist/${ARCHIVE}"
+            "${ARCHIVE}:application/vnd.oci.image.layer.v1.tar+gzip"
 
       # - name: Attach package to Release Please release
       #   env:

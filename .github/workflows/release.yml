@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+
+      - name: Read plugin metadata
+        id: plugin
+        shell: bash
+        run: |
+          NAME=$(sed -n 's/^name: *//p' plugin.yaml)
+          VERSION=$(sed -n 's/^version: *//p' plugin.yaml)
+
+          if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
+            echo "Could not read plugin name and version from plugin.yaml" >&2
+            exit 1
+          fi
+
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "Release tag $GITHUB_REF_NAME must match plugin version v$VERSION" >&2
+            exit 1
+          fi
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "archive=$NAME-$VERSION.tgz" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin
+        env:
+          ARCHIVE: ${{ steps.plugin.outputs.archive }}
+        run: |
+          mkdir -p dist
+          helm plugin package --sign=false .
+          mv "$ARCHIVE" dist/
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push plugin to OCI registry
+        env:
+          NAME: ${{ steps.plugin.outputs.name }}
+          VERSION: ${{ steps.plugin.outputs.version }}
+          ARCHIVE: ${{ steps.plugin.outputs.archive }}
+        run: |
+          oras push "ghcr.io/${GITHUB_REPOSITORY}/${NAME}:${VERSION}" \
+            --artifact-type application/vnd.helm.plugin.v1+json \
+            "dist/${ARCHIVE}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            Install this plugin from GHCR with:
+
+            ```sh
+            helm plugin install oci://ghcr.io/${{ github.repository }}/${{ steps.plugin.outputs.name }}:${{ steps.plugin.outputs.version }} --verify=false
+            ```
+
+            This release is unsigned, so `--verify=false` is required.
+          files: dist/${{ steps.plugin.outputs.archive }}

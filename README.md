@@ -5,7 +5,8 @@ This is a very simply plugin to kustomize helm charts with helm v4.
 ## Installation 
 
 ```
-helm plugin install oci://ghcr.io/camaeel/helm-kustomize-plugin/kustomize
+wget https://github.com/camaeel/helm-kustomize-plugin/raw/refs/heads/master/helm-kustomize-plugin.gpg
+helm plugin install --keyring helm-kustomize-plugin.gpg oci://ghcr.io/camaeel/helm-kustomize-plugin/kustomize:latest
 ```
 
 ## Usage

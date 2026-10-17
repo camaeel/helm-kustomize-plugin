@@ -1,0 +1,5 @@
+!tests/kustomize/kustomization.yaml
+tests/
+
+!tests/kustomize/kustomization.yaml
+dist/

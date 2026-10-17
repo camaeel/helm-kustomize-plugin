@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: latest
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+
+      - name: Set plugin version from release tag
+        uses: mikefarah/yq@v4
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        with:
+          cmd: yq -i '.version = (strenv(RELEASE_TAG) | sub("^v"; ""))' plugin.yaml
+
+      - name: Read plugin name
+        id: plugin
+        uses: mikefarah/yq@v4
+        with:
+          cmd: yq -r '.name' plugin.yaml
+
+      - name: Package plugin
+        id: package
+        env:
+          PLUGIN_NAME: ${{ steps.plugin.outputs.result }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          GPG_KEYRING_BASE64: ${{ secrets.GPG_KEYRING_BASE64 }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          SIGNING_KEY_EMAIL: helm-kustomize-plugin
+        run: |
+          NAME=$(printf '%s' "$PLUGIN_NAME" | tr -d '\r\n')
+          VERSION=${RELEASE_TAG#v}
+          ARCHIVE="$NAME-$VERSION.tgz"
+          SECRING="$RUNNER_TEMP/secring.gpg"
+          PASSPHRASE_FILE="$RUNNER_TEMP/passphrase.txt"
+
+          if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
+            echo "Could not determine plugin name and version" >&2
+            exit 1
+          fi
+          if [ -z "$GPG_KEYRING_BASE64" ] || [ -z "$SIGNING_KEY_EMAIL" ]; then
+            echo "GPG_KEYRING_BASE64 secret and SIGNING_KEY_EMAIL variable are required" >&2
+            exit 1
+          fi
+
+          umask 077
+          trap 'rm -f "$SECRING" "$PASSPHRASE_FILE"' EXIT
+          printf '%s' "$GPG_KEYRING_BASE64" | base64 --decode > "$SECRING"
+          printf '%s' "$GPG_PASSPHRASE" > "$PASSPHRASE_FILE"
+          mkdir -p dist
+          helm plugin package --sign --key "$SIGNING_KEY_EMAIL" \
+            --keyring "$SECRING" --passphrase-file "$PASSPHRASE_FILE" .
+          test -s "$ARCHIVE"
+          test -s "$ARCHIVE.prov"
+          mv "$ARCHIVE" "$ARCHIVE.prov" dist/
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push plugin to OCI registry
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+          VERSION: ${{ steps.package.outputs.version }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        working-directory: dist
+        run: |
+          REFERENCE="ghcr.io/${GITHUB_REPOSITORY}/${NAME}"
+          oras push "${REFERENCE}:${VERSION}" \
+            --artifact-type application/vnd.helm.plugin.v1+json \
+            "${ARCHIVE}:application/vnd.oci.image.layer.v1.tar+gzip" \
+            "${ARCHIVE}.prov:application/vnd.oci.image.layer.v1.tar"
+
+          if [[ "$VERSION" != *-* ]]; then
+            oras tag "${REFERENCE}:${VERSION}" latest
+          fi
+
+      # - name: Attach package and provenance to GitHub release
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     ARCHIVE: ${{ steps.package.outputs.archive }}
+      #   run: gh release upload "$GITHUB_REF_NAME" "dist/$ARCHIVE" "dist/$ARCHIVE.prov"

@@ -24,34 +24,40 @@ jobs:
       - name: Set up ORAS
         uses: oras-project/setup-oras@v2
 
-      - name: Read plugin metadata
+      - name: Set plugin version from release tag
+        uses: mikefarah/yq@v4
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        with:
+          cmd: -i '.version = (strenv(RELEASE_TAG) | sub("^v"; ""))' plugin.yaml
+
+      - name: Read plugin name
         id: plugin
-        shell: bash
-        run: |
-          NAME=$(sed -n 's/^name: *//p' plugin.yaml)
-          VERSION=$(sed -n 's/^version: *//p' plugin.yaml)
-
-          if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
-            echo "Could not read plugin name and version from plugin.yaml" >&2
-            exit 1
-          fi
-
-          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
-            echo "Release tag $GITHUB_REF_NAME must match plugin version v$VERSION" >&2
-            exit 1
-          fi
-
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "archive=$NAME-$VERSION.tgz" >> "$GITHUB_OUTPUT"
+        uses: mikefarah/yq@v4
+        with:
+          cmd: -r '.name' plugin.yaml
 
       - name: Package plugin
+        id: package
         env:
-          ARCHIVE: ${{ steps.plugin.outputs.archive }}
+          PLUGIN_NAME: ${{ steps.plugin.outputs.result }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          NAME=$(printf '%s' "$PLUGIN_NAME" | tr -d '\r\n')
+          VERSION=${RELEASE_TAG#v}
+          ARCHIVE="$NAME-$VERSION.tgz"
+
+          if [ -z "$NAME" ] || [ -z "$VERSION" ]; then
+            echo "Could not determine plugin name and version" >&2
+            exit 1
+          fi
+
           mkdir -p dist
           helm plugin package --sign=false .
           mv "$ARCHIVE" dist/
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
@@ -62,9 +68,9 @@ jobs:
 
       - name: Push plugin to OCI registry
         env:
-          NAME: ${{ steps.plugin.outputs.name }}
-          VERSION: ${{ steps.plugin.outputs.version }}
-          ARCHIVE: ${{ steps.plugin.outputs.archive }}
+          NAME: ${{ steps.package.outputs.name }}
+          VERSION: ${{ steps.package.outputs.version }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
         run: |
           oras push "ghcr.io/${GITHUB_REPOSITORY}/${NAME}:${VERSION}" \
             --artifact-type application/vnd.helm.plugin.v1+json \
@@ -81,4 +87,4 @@ jobs:
             ```
 
             This release is unsigned, so `--verify=false` is required.
-          files: dist/${{ steps.plugin.outputs.archive }}
+          files: dist/${{ steps.package.outputs.archive }}

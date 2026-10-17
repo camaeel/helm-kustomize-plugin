@@ -76,15 +76,8 @@ jobs:
             --artifact-type application/vnd.helm.plugin.v1+json \
             "dist/${ARCHIVE}"
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: |
-            Install this plugin from GHCR with:
-
-            ```sh
-            helm plugin install oci://ghcr.io/${{ github.repository }}/${{ steps.plugin.outputs.name }}:${{ steps.plugin.outputs.version }} --verify=false
-            ```
-
-            This release is unsigned, so `--verify=false` is required.
-          files: dist/${{ steps.package.outputs.archive }}
+      # - name: Attach package to Release Please release
+      #   env:
+      #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #     ARCHIVE: ${{ steps.package.outputs.archive }}
+      #   run: gh release upload "$GITHUB_REF_NAME" "dist/$ARCHIVE"

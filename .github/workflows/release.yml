@@ -89,10 +89,15 @@ jobs:
           ARCHIVE: ${{ steps.package.outputs.archive }}
         working-directory: dist
         run: |
-          oras push "ghcr.io/${GITHUB_REPOSITORY}/${NAME}:${VERSION}" \
+          REFERENCE="ghcr.io/${GITHUB_REPOSITORY}/${NAME}"
+          oras push "${REFERENCE}:${VERSION}" \
             --artifact-type application/vnd.helm.plugin.v1+json \
             "${ARCHIVE}:application/vnd.oci.image.layer.v1.tar+gzip" \
             "${ARCHIVE}.prov:application/vnd.oci.image.layer.v1.tar"
+
+          if [[ "$VERSION" != *-* ]]; then
+            oras tag "${REFERENCE}:${VERSION}" latest
+          fi
 
       # - name: Attach package and provenance to GitHub release
       #   env:
